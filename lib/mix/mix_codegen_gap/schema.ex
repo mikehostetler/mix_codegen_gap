@@ -11,6 +11,7 @@ defmodule Mix.MixCodegenGap.Schema do
             opts: [],
             alias: nil,
             file: nil,
+            gengap_file: nil,
             attrs: [],
             string_attr: nil,
             plural: nil,
@@ -61,16 +62,23 @@ defmodule Mix.MixCodegenGap.Schema do
   end
 
   def new(schema_name, schema_plural, cli_attrs, opts) do
-    ctx_app   = opts[:context_app] || Mix.MixCodegenGap.context_app()
-    otp_app   = Mix.MixCodegenGap.otp_app()
-    opts      = Keyword.merge(Application.get_env(otp_app, :generators, []), opts)
-    base      = Mix.MixCodegenGap.context_base(ctx_app)
-    basename  = MixCodegenGap.Naming.underscore(schema_name)
-    module    = Module.concat([base, schema_name])
-    repo      = opts[:repo] || Module.concat([base, "Repo"])
-    file      = Mix.MixCodegenGap.context_lib_path(ctx_app, basename <> ".ex")
-    table     = opts[:table] || schema_plural
-    uniques   = uniques(cli_attrs)
+    ctx_app = opts[:context_app] || Mix.MixCodegenGap.context_app()
+    otp_app = Mix.MixCodegenGap.otp_app()
+    opts = Keyword.merge(Application.get_env(otp_app, :generators, []), opts)
+    base = Mix.MixCodegenGap.context_base(ctx_app)
+    basename = MixCodegenGap.Naming.underscore(schema_name)
+    module = Module.concat([base, schema_name])
+    repo = opts[:repo] || Module.concat([base, "Repo"])
+    file = Mix.MixCodegenGap.context_lib_path(ctx_app, basename <> ".ex")
+
+    gengap_file =
+      Mix.MixCodegenGap.context_lib_path(
+        ctx_app,
+        String.replace(basename, "/", "/gengap/") <> ".schema.gengap.ex"
+      )
+
+    table = opts[:table] || schema_plural
+    uniques = uniques(cli_attrs)
     {assocs, attrs} = partition_attrs_and_assocs(module, attrs(cli_attrs))
     types = types(attrs)
     web_namespace = opts[:web]
@@ -83,8 +91,10 @@ defmodule Mix.MixCodegenGap.Schema do
       |> Module.split()
       |> List.last()
       |> MixCodegenGap.Naming.underscore()
+
     string_attr = string_attr(types)
     create_params = params(attrs, :create)
+
     default_params_key =
       case Enum.at(create_params, 0) do
         {key, _} -> key
@@ -100,6 +110,7 @@ defmodule Mix.MixCodegenGap.Schema do
       embedded?: embedded?,
       alias: module |> Module.split() |> List.last() |> Module.concat(nil),
       file: file,
+      gengap_file: gengap_file,
       attrs: attrs,
       plural: schema_plural,
       singular: singular,
@@ -124,7 +135,8 @@ defmodule Mix.MixCodegenGap.Schema do
       sample_id: sample_id(opts),
       context_app: ctx_app,
       generate?: generate?,
-      migration_module: migration_module()}
+      migration_module: migration_module()
+    }
   end
 
   @doc """
@@ -143,7 +155,7 @@ defmodule Mix.MixCodegenGap.Schema do
   def uniques(attrs) do
     attrs
     |> Enum.filter(&String.ends_with?(&1, ":unique"))
-    |> Enum.map(& &1 |> String.split(":", parts: 2) |> hd |> String.to_atom)
+    |> Enum.map(&(&1 |> String.split(":", parts: 2) |> hd |> String.to_atom()))
   end
 
   @doc """
@@ -165,9 +177,9 @@ defmodule Mix.MixCodegenGap.Schema do
   def params(attrs, action \\ :create) when action in [:create, :update] do
     attrs
     |> Enum.reject(fn
-        {_, {:references, _}} -> true
-        {_, _} -> false
-       end)
+      {_, {:references, _}} -> true
+      {_, _} -> false
+    end)
     |> Enum.into(%{}, fn {k, t} -> {k, type_to_default(k, t, action)} end)
   end
 
@@ -179,13 +191,18 @@ defmodule Mix.MixCodegenGap.Schema do
     |> Map.fetch!(field)
     |> inspect_value(value)
   end
+
   defp inspect_value(:decimal, value), do: "Decimal.new(\"#{value}\")"
   defp inspect_value(:utc_datetime, value), do: "DateTime.from_naive!(~N[#{value}], \"Etc/UTC\")"
-  defp inspect_value(:utc_datetime_usec, value), do: "DateTime.from_naive!(~N[#{value}], \"Etc/UTC\")"
+
+  defp inspect_value(:utc_datetime_usec, value),
+    do: "DateTime.from_naive!(~N[#{value}], \"Etc/UTC\")"
+
   defp inspect_value(_type, value), do: inspect(value)
 
   defp drop_unique(info) do
     prefix = byte_size(info) - 7
+
     case info do
       <<attr::size(prefix)-binary, ":unique">> -> attr
       _ -> info
@@ -194,65 +211,72 @@ defmodule Mix.MixCodegenGap.Schema do
 
   defp list_to_attr([key]), do: {String.to_atom(key), :string}
   defp list_to_attr([key, value]), do: {String.to_atom(key), String.to_atom(value)}
+
   defp list_to_attr([key, comp, value]) do
     {String.to_atom(key), {String.to_atom(comp), String.to_atom(value)}}
   end
 
   defp type_to_default(key, t, :create) do
     case t do
-        {:array, _}     -> []
-        :integer        -> 42
-        :float          -> 120.5
-        :decimal        -> "120.5"
-        :boolean        -> true
-        :map            -> %{}
-        :text           -> "some #{key}"
-        :date           -> %Date{year: 2010, month: 4, day: 17}
-        :time           -> %Time{hour: 14, minute: 0, second: 0}
-        :time_usec      -> %Time{hour: 14, minute: 0, second: 0, microsecond: {0, 6}}
-        :uuid           -> "7488a646-e31f-11e4-aace-600308960662"
-        :utc_datetime   -> "2010-04-17T14:00:00Z"
-        :utc_datetime_usec -> "2010-04-17T14:00:00.000000Z"
-        :naive_datetime -> ~N[2010-04-17 14:00:00]
-        :naive_datetime_usec -> ~N[2010-04-17 14:00:00.000000]
-        _               -> "some #{key}"
+      {:array, _} -> []
+      :integer -> 42
+      :float -> 120.5
+      :decimal -> "120.5"
+      :boolean -> true
+      :map -> %{}
+      :text -> "some #{key}"
+      :date -> %Date{year: 2010, month: 4, day: 17}
+      :time -> %Time{hour: 14, minute: 0, second: 0}
+      :time_usec -> %Time{hour: 14, minute: 0, second: 0, microsecond: {0, 6}}
+      :uuid -> "7488a646-e31f-11e4-aace-600308960662"
+      :utc_datetime -> "2010-04-17T14:00:00Z"
+      :utc_datetime_usec -> "2010-04-17T14:00:00.000000Z"
+      :naive_datetime -> ~N[2010-04-17 14:00:00]
+      :naive_datetime_usec -> ~N[2010-04-17 14:00:00.000000]
+      _ -> "some #{key}"
     end
   end
+
   defp type_to_default(key, t, :update) do
     case t do
-        {:array, _}     -> []
-        :integer        -> 43
-        :float          -> 456.7
-        :decimal        -> "456.7"
-        :boolean        -> false
-        :map            -> %{}
-        :text           -> "some updated #{key}"
-        :date           -> %Date{year: 2011, month: 5, day: 18}
-        :time           -> %Time{hour: 15, minute: 1, second: 1}
-        :time_usec      -> %Time{hour: 15, minute: 1, second: 1, microsecond: {0, 6}}
-        :uuid           -> "7488a646-e31f-11e4-aace-600308960668"
-        :utc_datetime   -> "2011-05-18T15:01:01Z"
-        :utc_datetime_usec   -> "2011-05-18T15:01:01.000000Z"
-        :naive_datetime -> ~N[2011-05-18 15:01:01]
-        :naive_datetime_usec -> ~N[2011-05-18 15:01:01.000000]
-        _               -> "some updated #{key}"
+      {:array, _} -> []
+      :integer -> 43
+      :float -> 456.7
+      :decimal -> "456.7"
+      :boolean -> false
+      :map -> %{}
+      :text -> "some updated #{key}"
+      :date -> %Date{year: 2011, month: 5, day: 18}
+      :time -> %Time{hour: 15, minute: 1, second: 1}
+      :time_usec -> %Time{hour: 15, minute: 1, second: 1, microsecond: {0, 6}}
+      :uuid -> "7488a646-e31f-11e4-aace-600308960668"
+      :utc_datetime -> "2011-05-18T15:01:01Z"
+      :utc_datetime_usec -> "2011-05-18T15:01:01.000000Z"
+      :naive_datetime -> ~N[2011-05-18 15:01:01]
+      :naive_datetime_usec -> ~N[2011-05-18 15:01:01.000000]
+      _ -> "some updated #{key}"
     end
   end
 
   defp validate_attr!({name, :datetime}), do: validate_attr!({name, :naive_datetime})
+
   defp validate_attr!({name, :array}) do
-    Mix.raise """
+    Mix.raise("""
     MixCodegenGap generators expect the type of the array to be given to #{name}:array.
     For example:
 
         mix codegap.gen.schema Post posts settings:array:string
-    """
+    """)
   end
+
   defp validate_attr!({_name, type} = attr) when type in @valid_types, do: attr
   defp validate_attr!({_name, {type, _}} = attr) when type in @valid_types, do: attr
+
   defp validate_attr!({_, type}) do
-    Mix.raise "Unknown type `#{inspect type}` given to generator. " <>
-              "The supported types are: #{@valid_types |> Enum.sort() |> Enum.join(", ")}"
+    Mix.raise(
+      "Unknown type `#{inspect(type)}` given to generator. " <>
+        "The supported types are: #{@valid_types |> Enum.sort() |> Enum.join(", ")}"
+    )
   end
 
   defp partition_attrs_and_assocs(schema_module, attrs) do
@@ -260,14 +284,17 @@ defmodule Mix.MixCodegenGap.Schema do
       Enum.split_with(attrs, fn
         {_, {:references, _}} ->
           true
+
         {key, :references} ->
-          Mix.raise """
+          Mix.raise("""
           MixCodegenGap generators expect the table to be given to #{key}:references.
           For example:
 
               mix codegap.gen.schema Comment comments body:text post_id:references:posts
-          """
-        _ -> false
+          """)
+
+        _ ->
+          false
       end)
 
     assocs =
@@ -283,8 +310,8 @@ defmodule Mix.MixCodegenGap.Schema do
 
   defp schema_defaults(attrs) do
     Enum.into(attrs, %{}, fn
-      {key, :boolean}  -> {key, ", default: false"}
-      {key, _}         -> {key, ""}
+      {key, :boolean} -> {key, ", default: false"}
+      {key, _} -> {key, ""}
     end)
   end
 
@@ -305,9 +332,10 @@ defmodule Mix.MixCodegenGap.Schema do
 
   defp schema_type(:text), do: :string
   defp schema_type(:uuid), do: Ecto.UUID
+
   defp schema_type(val) do
     if Code.ensure_loaded?(Ecto.Type) and not Ecto.Type.primitive?(val) do
-      Mix.raise "Unknown type `#{val}` given to generator"
+      Mix.raise("Unknown type `#{val}` given to generator")
     else
       val
     end
@@ -321,14 +349,14 @@ defmodule Mix.MixCodegenGap.Schema do
     |> Enum.uniq_by(fn {key, _} -> key end)
     |> Enum.map(fn
       {key, false} -> "create index(:#{table}, [:#{key}])"
-      {key, true}  -> "create unique_index(:#{table}, [:#{key}])"
+      {key, true} -> "create unique_index(:#{table}, [:#{key}])"
     end)
   end
 
   defp migration_defaults(attrs) do
     Enum.into(attrs, %{}, fn
-      {key, :boolean}  -> {key, ", default: false, null: false"}
-      {key, _}         -> {key, ""}
+      {key, :boolean} -> {key, ", default: false, null: false"}
+      {key, _} -> {key, ""}
     end)
   end
 
@@ -349,7 +377,7 @@ defmodule Mix.MixCodegenGap.Schema do
   defp migration_module do
     case Application.get_env(:ecto_sql, :migration_module, Ecto.Migration) do
       migration_module when is_atom(migration_module) -> migration_module
-      other -> Mix.raise "Expected :migration_module to be a module, got: #{inspect(other)}"
+      other -> Mix.raise("Expected :migration_module to be a module, got: #{inspect(other)}")
     end
   end
 end

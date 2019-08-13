@@ -147,7 +147,7 @@ defmodule Mix.Tasks.Codegap.Gen.Schema do
 
   @doc false
   def files_to_be_generated(%Schema{} = schema) do
-    [{:eex, "schema.ex", schema.file}]
+    [{:eex, "schema.ex", schema.file}, {:eex, "schema.gengap.ex", schema.gengap_file}]
   end
 
   @doc false
