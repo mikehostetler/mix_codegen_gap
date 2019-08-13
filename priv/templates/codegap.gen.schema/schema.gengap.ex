@@ -20,6 +20,7 @@ defmodule <%= inspect schema.module %>.Schema.GenGap do
           |> validate_required([<%= Enum.map_join(schema.attrs, ", ", &inspect(elem(&1, 0))) %>])
 <%= for k <- schema.uniques do %>         |> unique_constraint(<%= inspect k %>)
 <% end %>     end
+        defoverridable(changeset: 2)
     end
   end
 end
