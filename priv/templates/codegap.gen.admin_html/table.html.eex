@@ -1,0 +1,39 @@
+<table class="table">
+  <thead>
+    <tr>
+      <%= for {k, _} <- schema.attrs ++ [{:inserted_at, nil}, {:updated_at, nil}]   do %>
+        <th><%%= <%= schema.singular %>_sort_link(@conn, :<%= k %>, <%= k |> to_string() |> MixCodegenGap.Naming.humanize() |> inspect() %>) %></th>
+      <% end %><%= for {k, _, _, _} <- schema.assocs do %>
+        <th><%= k |> to_string() |> MixCodegenGap.Naming.humanize() %></th>
+      <% end %>
+      <th></th>
+    </tr>
+  </thead>
+  <tbody>
+    <%%= for <%= schema.singular %> <- @<%= schema.plural %>.entries do %>
+      <tr>
+        <%= for {k, _} <- schema.attrs ++ [{:inserted_at, nil}, {:updated_at, nil}] do %>
+          <td><%%= <%= schema.singular %>.<%= k %> %></td>
+        <% end %><%= for {k, _, _, _} <- schema.assocs do %>
+          <td>
+            <a href="<%%= Routes.<%= k %>_path(@conn, :show, <%= schema.singular %>.<%= k %>.id) %>">
+              <%%= forage_display(<%= schema.singular %>.<%= k %>) %>
+            </a>
+          </td>
+        <% end %>
+        <td>
+          <%%# Icon definitions %>
+          <%% show_icon = content_tag(:i, "", class: "fa fa-eye", title: "Show") %>
+          <%% edit_icon = content_tag(:i, "", class: "fa fa-edit", title: "Edit") %>
+          <%% delete_icon = content_tag(:i, "", class: "fa fa-trash", title: "Delete") %>
+          <%%# Links %>
+          <div class="pull-right">
+            <%%= link show_icon, to: Routes.<%= schema.route_helper %>_path(@conn, :show, <%= schema.singular %>) %> &nbsp;
+            <%%= link edit_icon, to: Routes.<%= schema.route_helper %>_path(@conn, :edit, <%= schema.singular %>) %> &nbsp;
+            <%%= link delete_icon, to: Routes.<%= schema.route_helper %>_path(@conn, :delete, <%= schema.singular %>, @conn.params), method: :delete, data: [confirm: "Are you sure?"], class: "text-danger"  %>
+          </div>
+        </td>
+      </tr>
+      <%% end %>
+    </tbody>
+  </table>

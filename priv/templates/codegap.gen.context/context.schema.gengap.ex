@@ -1,3 +1,4 @@
+<% preload = for {key, _, _, _} <- schema.assocs, do: key %>
 defmodule <%= inspect schema.module %>.GenGap do
   @doc false
   defmacro __using__(_opts) do
@@ -5,6 +6,8 @@ defmodule <%= inspect schema.module %>.GenGap do
       import Ecto.Query, warn: false
       alias <%= inspect schema.repo %>
       alias <%= inspect schema.module %>
+
+      alias Forage
 
       @doc """
       Returns the list of <%= schema.plural %>.
@@ -15,10 +18,13 @@ defmodule <%= inspect schema.module %>.GenGap do
           [%<%= inspect schema.alias %>{}, ...]
 
       """
-      def list_<%= schema.plural %> do
-        Repo.all(<%= inspect schema.alias %>)
+      # def list_<%= schema.plural %> do
+      #   Repo.all(<%= inspect schema.alias %>)
+      # end
+      def list_<%= schema.plural %>(params) do<% [{default_sort_field, _type} | _attrs] = schema.attrs %>
+        Forage.paginate(params, <%= inspect schema.alias %>, Repo, sort: [:<%= default_sort_field %>, :id], preload: <%= inspect(preload) %>)
       end
-      defoverridable(list_<%= schema.plural %>: 0)
+      defoverridable(list_<%= schema.plural %>: 1)
 
       @doc """
       Gets a single <%= schema.singular %>.
