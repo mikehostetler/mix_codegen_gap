@@ -299,7 +299,7 @@ defmodule Mix.Tasks.Codegap.Gen.AdminHtml do
       Enum.map(schema.assocs, fn {key, _, full_module_name, _} ->
         module_alias = full_module_name |> String.split(".") |> Enum.at(-1)
         field = "#{module_alias}.select_search_field()"
-        path = "Routes.#{context.basename}_#{key}_path(@conn, :select)"
+        path = "Routes.#{key}_path(@conn, :select)"
 
         """
                 <%= forage_horizontal_form_group #{inspect(key)} do %>
